@@ -25,8 +25,14 @@ Package/version metadata was retrieved directly from public PyPI JSON endpoints.
 pip-audit 2.10.1 reviewed all 49 pinned public packages: zero known vulnerabilities
 at review time. Registry hash-verified installation succeeded in a clean Python
 3.13 environment; pip compatibility check passed for 51 installed packages
-(49 public packages plus the two local projects). All 27 offline tests passed.
+(49 public packages plus the two local projects). All 33 offline tests passed.
 The core wheel was built from reviewed local source, version 0.7.0, not editable.
+Release verification additionally cloned the public core at
+a6a034f0215fa6e3272bba11c0ae2ef9b6deee1b, built both packages non-editably in a
+new Python 3.13 environment, checked all 51 installed packages and passed the
+33 tests plus 12-case matrix. Python minimum is now 3.11, matching the locked
+rpds-py requirement; the lock hashes are unchanged. Python 3.11 itself was not
+available for an execution test on the review host.
 
 Residual risk: publisher-link checks and known-vulnerability databases do not
 prove supply-chain integrity. All transitive maintainers were not manually

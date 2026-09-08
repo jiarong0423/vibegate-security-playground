@@ -54,6 +54,16 @@ class ReleaseGuardTests(unittest.TestCase):
         self.assertEqual(result, ["new", "old"])
         self.assertEqual(run.call_args.args[0], ["git", "rev-list", "a"*40])
 
+    def test_sast_includes_executable_tests(self):
+        with patch.object(guard, "run", return_value=b"") as run, \
+                patch.object(guard, "validate_tree"), \
+                patch.object(guard.shutil, "which", return_value="/scanner"), \
+                patch.object(Path, "is_file", return_value=True), \
+                patch.object(Path, "read_text", return_value='{"portfolio":{"high":0,"critical":0}}'):
+            guard.scan_commit(ROOT, "a" * 40, ROOT.parent / "ai-security-rules")
+        command = next(call.args[0] for call in run.call_args_list if call.args[0][0] == "bandit")
+        self.assertEqual({Path(arg).name for arg in command[2:-1]}, {"src", "tools", "tests"})
+
     def test_failed_scanner_blocks_without_printing_raw_output(self):
         response = subprocess.CompletedProcess([], 1, b"private", b"private")
         with patch.object(guard.subprocess, "run", return_value=response), patch.object(guard.shutil, "which", return_value="/scanner"):

@@ -38,15 +38,20 @@ HTML-comment canaries track effects; the canaries do not determine authorization
 
 ## Setup
 
-Requires Python 3.10+ and the VibeGate source checkout containing
-`ai_security_rules.strands_gate`. Keep the two repositories beside each other.
-The new hook must be released from the core repo before a fresh public clone can
-reproduce this version. Do not substitute an unrelated package from a registry.
+Requires Python 3.11+ and core 0.7.0 at the reviewed revision below.
+Keep the two repositories beside each other. Do not substitute a registry package.
+Start in a new directory; the commands create fresh clones without changing
+an existing checkout.
 
 ```sh
+git clone https://github.com/jiarong0423/ai-security-rules.git
+git -C ai-security-rules checkout --detach a6a034f0215fa6e3272bba11c0ae2ef9b6deee1b
+git clone https://github.com/jiarong0423/vibegate-security-playground.git
+cd vibegate-security-playground
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements.lock
 .venv/bin/python -m pip install --no-deps ../ai-security-rules .
+.venv/bin/python -m pip check
 sh tools/python.sh -m unittest discover -s tests -v
 sh tools/python.sh -m vibegate_playground.demo --report output/run.json
 ```
@@ -98,7 +103,9 @@ An opt-in live smoke entry point is available as
 It requires the `bedrock-login` optional dependency, the `vibegate-dev` AWS
 profile, explicit `--allow-paid-inference`, and a new `--report` path.
 Each invocation permits at most two model requests with 256 output tokens each;
-SDK and agent automatic retries are disabled. This is a per-process request
+Transport and agent automatic retries are disabled. The request budget is
+enforced at the client method boundary, including SDK-internal resends.
+Failed requests consume the allowance. This is a per-process request
 limit, not an account-wide spending cap. Never rerun without reviewing the
 remaining user-approved request budget. It tests only the safe tool path.
 The first live request on 2026-09-09 returned AccessDeniedException. The second
@@ -156,5 +163,5 @@ the repository-local core.hooksPath configuration; doing so removes this guard.
 ## Project Record
 
 Detailed operator logs remain local and are excluded from public commits.
-The package is a local development candidate until the documented release gates
-and coordinated core/playground publication are complete.
+The pinned core and playground form a synthetic test release, not production
+certification. Live dangerous-action interception remains unverified.

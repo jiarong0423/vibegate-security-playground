@@ -27,8 +27,14 @@ prompt injection; prepare/preflight methods misclassified as install hooks;
 and the bounded subprocess calls described above. None is suppressed through
 a project-wide tuning rule. These indicators do not certify arbitrary code safe.
 
-27 offline tests pass in a clean, non-editable installation. This includes
+33 offline tests pass in a clean, non-editable installation. This includes
 real SDK dispatch, denial cases, request ceilings and actual blocked local push.
+The release hook now scans src, tools and tests; a regression test verifies that
+scope. Live-runner tests use the real SDK stream with a fake client, assert the
+actual client request count, verify retry configuration and test zero client
+creation on missing approval, existing report and failed preflight. Failed calls
+and SDK-internal resends share the client-boundary budget. No AWS requests were
+made for this regression suite. The 12-case synthetic matrix also passed.
 Synthetic adversarial cases are intentionally retained, not blanket-excluded.
 
 Residual risk: static analysis does not establish absence of all vulnerabilities.

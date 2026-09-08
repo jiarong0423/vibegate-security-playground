@@ -98,7 +98,7 @@ def scan_commit(root, revision, scanner_root):
             target.write_bytes(data)
         run(["gitleaks", "dir", str(snapshot), "--redact", "--no-banner"], cwd=temp)
         run(["bandit", "-r", str(snapshot / "src"), str(snapshot / "tools"),
-             "-q"], cwd=temp)
+             str(snapshot / "tests"), "-q"], cwd=temp)
         env = os.environ.copy()
         env["PYTHONPATH"] = str(scanner_root / "src")
         env["PYTHONDONTWRITEBYTECODE"] = "1"

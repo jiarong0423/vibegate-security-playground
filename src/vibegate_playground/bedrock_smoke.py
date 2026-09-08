@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import re
+from threading import Lock
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -15,16 +16,30 @@ from strands.models import BedrockModel
 from ai_security_rules.strands_gate import VibeGateHook
 
 
-class BoundedBedrockModel(BedrockModel):
-    calls = 0
-    call_limit = 2
+class ProviderCallLimit(RuntimeError):
+    """The operator's client request allowance is exhausted."""
 
-    async def stream(self, *args, **kwargs):
-        if self.calls >= self.call_limit:
-            raise RuntimeError("provider_call_limit")
-        self.calls += 1
-        async for event in super().stream(*args, **kwargs):
-            yield event
+
+class BoundedBedrockModel(BedrockModel):
+    def __init__(self, *, call_limit=2, **kwargs):
+        if type(call_limit) is not int or call_limit not in (1, 2):
+            raise ValueError("invalid_call_limit")
+        self.calls = 0
+        self.call_limit = call_limit
+        self._budget_lock = Lock()
+        super().__init__(**kwargs)
+        # SDK-internal retries must cross the same budget as new agent turns.
+        self.client.converse_stream = self._bounded(self.client.converse_stream)
+        self.client.converse = self._bounded(self.client.converse)
+
+    def _bounded(self, request):
+        def invoke(*args, **kwargs):
+            with self._budget_lock:
+                if self.calls >= self.call_limit:
+                    raise ProviderCallLimit("provider_call_limit")
+                self.calls += 1
+            return request(*args, **kwargs)
+        return invoke
 
 
 def redact_error(message):
@@ -73,12 +88,12 @@ def main():
 
                 session = boto3.Session(profile_name="vibegate-dev", region_name=result["region"])
                 model = BoundedBedrockModel(
+                    call_limit=args.max_calls,
                     boto_session=session,
                     boto_client_config=Config(connect_timeout=10, read_timeout=30,
                                               retries={"total_max_attempts": 1, "mode": "standard"}),
                     model_id=result["model"], max_tokens=256, temperature=0,
                 )
-                model.call_limit = args.max_calls
                 agent = Agent(model=model, tools=[read_synthetic_sample], hooks=[hook],
                               callback_handler=None, retry_strategy=None)
                 agent("Call read_synthetic_sample exactly once with no arguments, then briefly report its result.")
@@ -86,6 +101,8 @@ def main():
                                      and hook.decisions[0].allowed)
         except Exception as error:
             result["error_type"] = type(error).__name__
+            if isinstance(error, ProviderCallLimit):
+                result["error_reason"] = "provider_call_limit"
             if hasattr(error, "response"):
                 result["aws_error_code"] = error.response.get("Error", {}).get("Code", "unknown")
                 result["aws_error_message_redacted"] = redact_error(

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "vibegate-security-playground"
 version = "0.1.0"
 description = "Bounded Strands tool-interception scenarios using synthetic data"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["strands-agents==1.55.0", "ai-security-rules>=0.7.0,<0.8"]
 
 [project.optional-dependencies]
