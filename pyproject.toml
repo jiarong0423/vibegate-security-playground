@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibegate-security-playground"
+version = "0.1.0"
+description = "Bounded Strands tool-interception scenarios using synthetic data"
+requires-python = ">=3.10"
+dependencies = ["strands-agents==1.55.0", "ai-security-rules>=0.7.0,<0.8"]
+
+[project.optional-dependencies]
+bedrock-login = ["boto3==1.43.89", "botocore[crt]==1.43.89"]
+
+[project.scripts]
+vibegate-playground = "vibegate_playground.demo:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
