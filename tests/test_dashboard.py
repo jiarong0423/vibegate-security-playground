@@ -39,6 +39,8 @@ class DashboardTests(unittest.TestCase):
         for text in ('id="lang-zh"', 'id="lang-en"', "VibeGate Security Tests",
                      '<button id="reset"', "viewCleared=true", "歷史證據仍保留"):
             self.assertIn(text, html)
+        self.assertIn("selectedScenario.parentElement.querySelector('span')", html)
+        self.assertNotIn('input[name="scenario"]:checked span', html)
         self.assertNotIn("/api/reset", html)
         self.assertNotIn("method:'DELETE'", html)
 
