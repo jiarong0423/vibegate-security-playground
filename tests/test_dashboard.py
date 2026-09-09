@@ -1,12 +1,16 @@
+import ast
 import io
 import json
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from vibegate_playground import dashboard as dashboard_module, server
 from vibegate_playground.dashboard import Dashboard, present, make_handler
+
+HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0002fa1f]")
 
 
 class DashboardTests(unittest.TestCase):
@@ -41,8 +45,41 @@ class DashboardTests(unittest.TestCase):
             self.assertIn(text, html)
         self.assertIn("selectedScenario.parentElement.querySelector('span')", html)
         self.assertNotIn('input[name="scenario"]:checked span', html)
+        for text in ("VibeGate | Security Test Console", "New test settings",
+                     "Insufficient evidence or not executed",
+                     "Test or storage failed; do not treat this as a security success."):
+            self.assertIn(text, html)
+        self.assertIn("new URLSearchParams(location.search)", html)
+        self.assertIn("history.replaceState", html)
+        self.assertIn(r"const CJK=/\p{Script=Han}/u", html)
+        self.assertIn("CJK.test(text)?t('unmappedValue')", html)
+        self.assertIn("else{controls();renderEmpty()}", html)
         self.assertNotIn("/api/reset", html)
         self.assertNotIn("method:'DELETE'", html)
+
+    def test_every_dashboard_chinese_literal_has_an_english_mapping(self):
+        source = Path(dashboard_module.__file__).read_text()
+        localized = {
+            node.value for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and HAN_RE.search(node.value)
+        }
+        html = (dashboard_module.WEB / "index.html").read_text()
+        mapping = html.split("const VALUE_EN={", 1)[1].split("};", 1)[0]
+        mapped = set(re.findall(r"'([^']+)':", mapping))
+        self.assertEqual(localized - mapped, set())
+        self.assertTrue(HAN_RE.search("𠮷"))
+        self.assertTrue(HAN_RE.search("﨑"))
+
+    def test_language_query_route_serves_dashboard(self):
+        handler = object.__new__(make_handler(self.app))
+        handler.server = type("Server", (), {"server_port": 1234})()
+        handler.headers = {"Host": "127.0.0.1:1234"}
+        handler.path = "/?lang=en"
+        with patch.object(handler, "send") as send:
+            handler.do_GET()
+        self.assertEqual(send.call_args.args[0], 200)
+        self.assertIn(b'id="new-test-settings"', send.call_args.args[1])
 
     def test_source_and_mcp_are_not_cloud_authorizations(self):
         for kind in ("github_source", "offline_mcp"):

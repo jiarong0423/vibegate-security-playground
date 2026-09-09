@@ -510,11 +510,12 @@ def make_handler(app):
         def do_GET(self):
             if not self.valid_host():
                 return self.send(403, {"error": "Invalid host"})
-            if self.path == "/api/state":
+            request_path = self.path.partition("?")[0]
+            if request_path == "/api/state":
                 return self.send(200, app.snapshot())
-            if self.path == "/":
+            if request_path == "/":
                 return self.send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
-            if self.path == "/architecture.png":
+            if request_path == "/architecture.png":
                 return self.send(200, (WEB / "architecture.png").read_bytes(), "image/png")
             return self.send(404, {"error": "Not found"})
 

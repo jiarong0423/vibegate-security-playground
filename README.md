@@ -219,6 +219,24 @@ checkout rather than resolved by package name from a registry.
 missing. Set `VIBEGATE_PLAYGROUND_PYTHON_BIN` explicitly only when migrating to a
 reviewed interpreter.
 
+The runner fixes AWS configuration and login-cache lookup to the ignored
+project-local `.aws/` directory. It rejects direct credential environment
+variables and disables instance-metadata fallback. Before an approved live run,
+initialize the local directory and authenticate the dedicated IAM user:
+
+```sh
+mkdir -p .aws/login/cache
+chmod 700 .aws .aws/login .aws/login/cache
+AWS_CONFIG_FILE="$PWD/.aws/config" \
+AWS_SHARED_CREDENTIALS_FILE="$PWD/.aws/credentials" \
+AWS_LOGIN_CACHE_DIRECTORY="$PWD/.aws/login/cache" \
+aws login --profile vibegate-dev --region ap-southeast-2
+```
+
+The resulting `login_session` must identify `user/vibegate-dev`; reject any
+prompt to replace it with `root`. The local configuration, cache and credentials
+paths are excluded from Git and the immutable public export allowlist.
+
 ## Run Offline Tests
 
 Offline tests do not initialize Bedrock or read AWS credentials.
@@ -252,7 +270,7 @@ Available workflows:
 5. **Nova direct and inline baselines**: one-request diagnostic paths that must
    not be presented as indirect GitHub/MCP injection evidence.
 
-The live workflow requires a separately configured least-privilege AWS profile,
+The live workflow requires the project-local least-privilege AWS profile,
 Bedrock model access and explicit operator approval. The confirmation dialog
 states the exact request ceiling and data boundary. Typing `RUN NOVA` creates a
 single-use authorization that expires after 60 seconds. Automatic retries are

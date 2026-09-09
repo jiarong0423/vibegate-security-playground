@@ -5,7 +5,11 @@ Candidate: VibeGate Security Playground 0.2.0, exact 36-path public allowlist
 
 ## Final Working-Tree Candidate
 
-- Python unittest discovery: **131 tests passed** in 34.803 seconds.
+- Python unittest discovery: **134 tests passed** in 30.242 seconds.
+- Dashboard language boundary: `/?lang=en` survives a full reload, backend
+  Chinese values have complete English mappings, and unknown Han-script text
+  fails closed to `Translation unavailable`. Browser inspection found no Han
+  text in English mode except the intentional `中文` language selector.
 - Python 3.11 grammar guard: passed across `src`, `tools` and `tests`.
 - Wheel build: `vibegate_security_playground-0.2.0-py3-none-any.whl` built
   with setuptools 84.0.0 and no dependency resolution.

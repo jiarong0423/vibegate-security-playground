@@ -25,10 +25,13 @@ The external AgentDojo repository is neither installed nor executed.
 
 ## Credential Boundary
 
-AWS credentials are supplied by the normal SDK credential provider and remain
-outside the repository. The application does not read, display or serialize
-credential values. Local login caches, AWS configuration, environments, run
-reports and operator logs are excluded from Git.
+AWS credentials are supplied by the normal SDK credential provider. This
+project fixes configuration and login-cache lookup to the ignored project-local
+`.aws/` runtime directory; those files remain outside the Git tree and public
+export. The application does not read, display or serialize credential values.
+Direct credential environment variables and instance-metadata fallback are
+rejected by the canonical runner. Local login caches, AWS configuration,
+environments, run reports and operator logs are excluded from Git.
 
 Credential owner: local AWS account operator.
 Rotation: renew or replace the temporary session using the official AWS login
