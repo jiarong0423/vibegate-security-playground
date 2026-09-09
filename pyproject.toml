@@ -4,16 +4,38 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vibegate-security-playground"
-version = "0.1.0"
-description = "Bounded Strands tool-interception scenarios using synthetic data"
+version = "0.2.0"
+description = "Execution-time security gates and evidence for Strands agent tool calls"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["strands-agents==1.55.0", "ai-security-rules>=0.7.0,<0.8"]
+license = "MIT"
+authors = [
+  { name = "VibeGate contributors" }
+]
+keywords = ["agent-security", "amazon-bedrock", "mcp", "prompt-injection", "strands-agents"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Security",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["strands-agents==1.55.0", "mcp==2.1.1", "ai-security-rules>=0.7.0,<0.8"]
+
+[project.urls]
+Repository = "https://github.com/jiarong0423/vibegate-security-playground"
+Issues = "https://github.com/jiarong0423/vibegate-security-playground/issues"
 
 [project.optional-dependencies]
 bedrock-login = ["boto3==1.43.89", "botocore[crt]==1.43.89"]
 
 [project.scripts]
 vibegate-playground = "vibegate_playground.demo:main"
+vibegate-dashboard = "vibegate_playground.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+vibegate_playground = ["web/*.html", "web/*.png"]

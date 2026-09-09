@@ -2,11 +2,82 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from strands import Agent, tool
 from ai_security_rules.strands_gate import VibeGateHook, snapshot_digest
-from vibegate_playground.demo import SCENARIOS, SyntheticSandbox, run_case
+from vibegate_playground.demo import SCENARIOS, SyntheticSandbox, run_case, run_replay, replay_pair, ReplayAudit
 from vibegate_playground.model import AttemptModel
+
+
+class ReplayTests(unittest.TestCase):
+    def requests(self):
+        return [{"toolUseId": "safe-1", "name": "read_synthetic_sample", "input": {}},
+                {"toolUseId": "danger-1", "name": "send_synthetic_sample", "input": {}},
+                {"toolUseId": "danger-2", "name": "send_synthetic_sample", "input": {}}]
+
+    def test_mixed_requests_correlate_actual_sdk_completion(self):
+        with patch("boto3.Session", side_effect=AssertionError("no_cloud")):
+            pair = replay_pair(self.requests())
+        self.assertTrue(pair["passed"])
+        self.assertEqual(pair["provider_calls"], 0)
+        self.assertEqual([row["status"] for row in pair["protected"]["requests"]],
+                         ["executed", "blocked", "blocked"])
+        self.assertEqual([row["executions"] for row in pair["control"]["requests"]], [1, 1, 1])
+        self.assertTrue(all(row["sdk_cancelled"] for row in pair["protected"]["requests"][1:]))
+        self.assertEqual(pair["protected"]["observed"]["received_bytes"], 0)
+        self.assertEqual(pair["protected"]["provenance"], "not_verified_as_live")
+
+    def test_no_dangerous_attempt_is_not_interception_success(self):
+        for requests in ([], self.requests()[:1]):
+            pair = replay_pair(requests)
+            self.assertFalse(pair["passed"])
+            self.assertEqual(pair["protected"]["status"], "unobserved_attempt")
+
+    def test_scanner_failure_is_cancelled_by_sdk(self):
+        result = run_replay(self.requests(), True, scanner_failure=True)
+        self.assertTrue(result["passed"])
+        self.assertTrue(all(row["status"] == "blocked" and row["executions"] == 0
+                            for row in result["requests"]))
+
+    def test_bad_records_fail_before_receiver_or_tools(self):
+        request = self.requests()[0]
+        for records in ([request, request], [{**request, "input": {"path": "private"}}],
+                        [{**request, "name": "unknown"}], self.requests() * 3):
+            with patch("vibegate_playground.demo.receiver_health") as health:
+                result = run_replay(records, True)
+                self.assertEqual(result["status"], "harness_failure")
+                self.assertFalse(result["passed"])
+                health.assert_not_called()
+
+    def test_receiver_health_failure_is_not_blocked(self):
+        with patch("vibegate_playground.demo.receiver_health", return_value=False):
+            result = run_replay(self.requests(), True)
+        self.assertEqual(result["status"], "harness_failure")
+        self.assertFalse(result["passed"])
+
+    def test_broken_socket_is_not_zero_transfer_success(self):
+        with patch("vibegate_playground.demo.socket.socketpair", side_effect=OSError("synthetic")):
+            result = run_replay(self.requests(), True)
+        self.assertEqual(result["status"], "harness_failure")
+
+    def test_tool_failure_is_not_interception(self):
+        with patch.object(SyntheticSandbox, "perform", side_effect=OSError("synthetic")):
+            result = run_replay(self.requests(), False)
+        self.assertEqual(result["status"], "tool_failure")
+        self.assertFalse(result["passed"])
+
+    def test_missing_after_event_is_not_interception(self):
+        with patch.object(ReplayAudit, "after_tool"):
+            result = run_replay(self.requests(), True)
+        self.assertEqual(result["status"], "harness_failure")
+        self.assertFalse(result["passed"])
+
+    def test_hook_exception_is_not_interception(self):
+        with patch.object(ReplayAudit, "before_tool", side_effect=RuntimeError("synthetic")):
+            result = run_replay(self.requests(), True)
+        self.assertEqual(result["status"], "harness_failure")
+        self.assertFalse(result["passed"])
 
 
 class InterceptionTests(unittest.TestCase):

@@ -139,5 +139,142 @@ class BudgetTests(unittest.TestCase):
             self.assertEqual(payload["error_reason"], "provider_call_limit")
 
 
+class ProviderIntegrationTests(unittest.TestCase):
+    def test_two_turn_capture_and_default_single_turn_boundary(self):
+        for turns in (1, 2):
+            session = MagicMock()
+            session.region_name = "ap-southeast-2"
+            first = self.response(names=("read_synthetic_sample",))
+            second = self.response(names=("send_synthetic_sample",))
+            second["stream"][1]["contentBlockStart"]["start"]["toolUse"]["toolUseId"] = "second"
+            request = session.client.return_value.converse_stream
+            request.side_effect = [first, second]
+            model = smoke.CapturedBedrockModel(call_limit=2, capture_turn_limit=turns,
+                boto_session=session, model_id="global.amazon.nova-2-lite-v1:0", max_tokens=256)
+            async def exercise():
+                async for _ in model.stream([]):
+                    pass
+                if turns == 1:
+                    with self.assertRaises(smoke.CaptureError):
+                        async for _ in model.stream([]):
+                            pass
+                else:
+                    async for _ in model.stream([]):
+                        pass
+            asyncio.run(exercise())
+            self.assertEqual(request.call_count, turns)
+            self.assertEqual(len(model.captures), turns)
+            self.assertEqual(len(model.captured_requests), turns)
+
+    def response(self, names=("read_synthetic_sample", "send_synthetic_sample"), arguments="{}"):
+        chunks = [{"messageStart": {"role": "assistant"}}]
+        for index, name in enumerate(names):
+            chunks.extend([
+                {"contentBlockStart": {"contentBlockIndex": index, "start": {
+                    "toolUse": {"toolUseId": f"synthetic-{index}", "name": name}}}},
+                {"contentBlockDelta": {"contentBlockIndex": index, "delta": {"toolUse": {"input": arguments}}}},
+                {"contentBlockStop": {"contentBlockIndex": index}},
+            ])
+        if not names:
+            chunks.extend([
+                {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "No action."}}},
+                {"contentBlockStop": {"contentBlockIndex": 0}},
+            ])
+        chunks.extend([
+            {"messageStop": {"stopReason": "tool_use" if names else "end_turn"}},
+            {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                          "metrics": {"latencyMs": 1}}},
+        ])
+        return {"ResponseMetadata": {"HTTPStatusCode": 200, "RequestId": "synthetic-request-id"},
+                "stream": chunks}
+
+    def execute(self, response):
+        with patch.object(smoke.boto3, "Session") as session:
+            session.return_value.region_name = "ap-southeast-2"
+            request = session.return_value.client.return_value.converse_stream
+            request.return_value = response
+            result = smoke.verify_interception(1, allow_paid_inference=True)
+            self.assertEqual(request.call_count, 1)
+            return result
+
+    def test_full_sdk_capture_cancel_stop_and_replay(self):
+        result = self.execute(self.response())
+        self.assertTrue(result["passed"], result)
+        self.assertTrue(result["live"]["followup_stopped"])
+        self.assertEqual(result["live"]["provider_calls"], 1)
+        self.assertEqual([row["status"] for row in result["live"]["requests"]], ["executed", "blocked"])
+        self.assertEqual(result["live"]["observed"]["received_bytes"], 0)
+        self.assertEqual(result["live"]["request_digest"], result["replay"]["control"]["request_digest"])
+        self.assertTrue(result["transport"][0]["stream_complete"])
+        self.assertNotIn("synthetic-request-id", json.dumps(result))
+
+    def test_no_attempt_is_not_success(self):
+        result = self.execute(self.response(names=()))
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["live"]["status"], "unobserved_attempt")
+
+    def test_invalid_arguments_never_reach_tool_dispatch(self):
+        result = self.execute(self.response(arguments='{"path":"private"}'))
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["live"]["status"], "capture_failure")
+        self.assertEqual(result["live"]["requests"], [])
+
+    def test_truncated_stream_never_dispatches_partial_requests(self):
+        response = self.response()
+        response["stream"] = response["stream"][:-2]
+        result = self.execute(response)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["live"]["requests"], [])
+        self.assertEqual(result["live"]["status"], "capture_failure")
+
+    def test_missing_metadata_is_not_live_evidence(self):
+        response = self.response()
+        response.pop("ResponseMetadata")
+        result = self.execute(response)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["live"]["status"], "capture_failure")
+
+    def test_provider_exception_is_not_interception(self):
+        with patch.object(smoke.boto3, "Session") as session:
+            session.return_value.region_name = "ap-southeast-2"
+            session.return_value.client.return_value.converse_stream.side_effect = OSError("private-error")
+            result = smoke.verify_interception(1, allow_paid_inference=True)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["live"]["status"], "provider_failure")
+        self.assertNotIn("private-error", json.dumps(result))
+
+    def test_interception_requires_explicit_cli_approval(self):
+        with TemporaryDirectory() as temp, patch.object(smoke.boto3, "Session") as session, \
+                patch("sys.argv", ["smoke", "--interception", "--report", str(Path(temp) / "report.json")]), \
+                redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                smoke.main()
+            session.assert_not_called()
+
+    def test_direct_interception_also_requires_approval(self):
+        with patch.object(smoke.boto3, "Session") as session:
+            with self.assertRaises(ValueError):
+                smoke.verify_interception(1)
+            session.assert_not_called()
+
+    def test_initialization_failure_has_zero_provider_calls(self):
+        with patch.object(smoke.boto3, "Session", side_effect=RuntimeError("private-path")):
+            result = smoke.verify_interception(1, allow_paid_inference=True)
+        self.assertEqual(result["live"]["status"], "provider_initialization_failure")
+        self.assertEqual(result["live"]["provider_calls"], 0)
+        self.assertNotIn("private-path", json.dumps(result))
+
+    def test_existing_interception_report_blocks_before_client(self):
+        with TemporaryDirectory() as temp:
+            report = Path(temp) / "result.json"
+            report.write_text("preserve", encoding="utf-8")
+            with patch.object(smoke.boto3, "Session") as session, patch("sys.argv", [
+                    "smoke", "--interception", "--allow-paid-inference", "--report", str(report)]):
+                with self.assertRaises(FileExistsError):
+                    smoke.main()
+                session.assert_not_called()
+            self.assertEqual(report.read_text(), "preserve")
+
+
 if __name__ == "__main__":
     unittest.main()
